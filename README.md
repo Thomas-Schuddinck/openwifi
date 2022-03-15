@@ -4,7 +4,8 @@ SPDX-FileCopyrightText: 2019 UGent
 SPDX-License-Identifier: AGPL-3.0-or-later
 -->
 
-# openwifi
+# openwifi (version PHY fuzzing)
+**This fork will be used for my work on phy fuzzing for my master thesis**
 <img src="./openwifi-arch.jpg" width="900">
 
 **openwifi:** Linux mac80211 compatible full-stack IEEE802.11/Wi-Fi design based on SDR (Software Defined Radio).
