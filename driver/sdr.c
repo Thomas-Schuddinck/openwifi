@@ -488,7 +488,7 @@ static irqreturn_t openwifi_tx_interrupt(int irq, void *dev_id)
 	u32 reg_val, hw_queue_len, prio, queue_idx, dma_fifo_no_room_flag, num_slot_random, cw, loop_count=0;//, i;
 	u8 tx_result_report;
 	// u16 prio_rd_idx_store[64]={0};
-
+	
 	spin_lock(&priv->lock);
 
 	while(1) { // loop all packets that have been sent by FPGA
@@ -605,7 +605,7 @@ u8 gen_ht_sig_crc(u64 m)
 }
 
 u32 calc_phy_header(u8 rate_hw_value, bool use_ht_rate, bool use_short_gi, u32 len, u8 *bytes){
-	//u32 signal_word = 0 ;
+	///u32 signal_word = 0 ;
 	u8  SIG_RATE = 0, HT_SIG_RATE;
 	u8	len_2to0, len_10to3, len_msb,b0,b1,b2, header_parity ;
 	u32 l_len, ht_len, ht_sig1, ht_sig2;
@@ -638,10 +638,15 @@ u32 calc_phy_header(u8 rate_hw_value, bool use_ht_rate, bool use_short_gi, u32 l
 	header_parity = gen_parity((len_msb << 16)| (b1<<8) | b0) ;
 	b2 = ( len_msb | (header_parity << 1) ) ;
 
-	memset(bytes,0,16);
-	bytes[0] = b0 ;
-	bytes[1] = b1 ; 
-    bytes[2] = b2;
+	memset(bytes,0,LEN_PHY_HEADER);
+	// hardware parameters
+	bytes[0+4] = b0;
+	bytes[1+4] = b1; 
+    bytes[2+4] = b2;
+	// on-air bytes
+	bytes[0] = b0;
+	bytes[1] = b1;
+	bytes[2] = b2;
 
 	// HT-mixed mode signal
 	if(use_ht_rate)
@@ -651,12 +656,20 @@ u32 calc_phy_header(u8 rate_hw_value, bool use_ht_rate, bool use_short_gi, u32 l
 		ht_sig2 = ht_sig2 | (gen_ht_sig_crc(ht_sig1 | ht_sig2 << 24) << 10);
 
 	    bytes[3]  = 1;
+		// HT hardware parameters
 	    bytes[8]  = (ht_sig1 & 0xFF);
 	    bytes[9]  = (ht_sig1 >> 8)  & 0xFF;
 	    bytes[10] = (ht_sig1 >> 16) & 0xFF;
 	    bytes[11] = (ht_sig2 & 0xFF);
 	    bytes[12] = (ht_sig2 >> 8)  & 0xFF;
 	    bytes[13] = (ht_sig2 >> 16) & 0xFF;
+		// HT on-air
+		bytes[8+8]  = (ht_sig1 & 0xFF);
+	    bytes[9+8]  = (ht_sig1 >> 8)  & 0xFF;
+	    bytes[10+8] = (ht_sig1 >> 16) & 0xFF;
+	    bytes[11+8] = (ht_sig2 & 0xFF);
+	    bytes[12+8] = (ht_sig2 >> 8)  & 0xFF;
+	    bytes[13+8] = (ht_sig2 >> 16) & 0xFF;
 
 		return(HT_SIG_RATE);
 	}
@@ -694,6 +707,12 @@ static void openwifi_tx(struct ieee80211_hw *dev,
 	__le16 frame_control,duration_id;
 	u32 dma_fifo_no_room_flag, hw_queue_len;
 	enum dma_status status;
+
+	u8 signal_field[3]; 
+	unsigned int offset_timestamp = 88;
+	unsigned char * head_arr = (unsigned char*)skb->head;
+	//unsigned char * skb_arr = (unsigned char*)skb->data;
+	
 	// static bool led_status=0;
 	// struct gpio_led_data *led_dat = cdev_to_gpio_led_data(priv->led[3]);
 
@@ -705,6 +724,48 @@ static void openwifi_tx(struct ieee80211_hw *dev,
 	// 		gpiod_set_value(led_dat->gpiod, led_status);
 	// 	}
 	// }
+
+	/*
+	printk(KERN_DEBUG  "[MORDRED LOG] TX Function called (debug)");
+	printk(KERN_DEBUG  "[MORDRED LOG] TIMESTAMP UNIT_POS (D): %d", dev->radiotap_timestamp.units_pos);
+	printk(KERN_DEBUG  "[MORDRED LOG] TIMESTAMP ACCURACY (D): %d", dev->radiotap_timestamp.accuracy);
+	printk(KERN_DEBUG  "[MORDRED LOG] skb->tstamp: %lld", skb->tstamp);
+	printk(KERN_DEBUG  "---------------------LENGTH/SIZES------------------------");
+	printk(KERN_DEBUG  "[MORDRED LOG] TRUE SIZE %u bytes", skb->truesize);
+	printk(KERN_DEBUG  "[MORDRED LOG] LEN: %d bytes", skb->len);
+	printk(KERN_DEBUG  "[MORDRED LOG] DATA LEN: %d bytes", skb->data_len);
+
+	printk(KERN_DEBUG  "---------------------HEADERS------------------------");
+	printk(KERN_DEBUG  "[MORDRED LOG] HEADER LENGTH: %d", skb->hdr_len);
+	printk(KERN_DEBUG  "[MORDRED LOG] HEADER START: %d", skb->headers_start[0]);
+	printk(KERN_DEBUG  "[MORDRED LOG] HEADER END: %d", skb->headers_end[0]);
+
+	printk(KERN_DEBUG  "---------------------TAIL/END------------------------");
+	//printk(KERN_DEBUG  "[MORDRED LOG] TAIL: %d", skb->tail);
+	//printk(KERN_DEBUG  "[MORDRED LOG] END: %d", skb->end);
+
+	printk(KERN_DEBUG  "---------------------MAC------------------------");
+	printk(KERN_DEBUG  "[MORDRED LOG] LENGTH MAC: %d", skb->mac_len);
+	printk(KERN_DEBUG  "[MORDRED LOG] MAC HEADER: %d", skb->mac_header);
+	printk(KERN_DEBUG  "[MORDRED LOG] INNER MAC HEADER: %d", skb->inner_mac_header);
+
+	printk(KERN_DEBUG  "---------------------DATA------------------------");
+	printk(KERN_DEBUG  "[MORDRED LOG] TEST PRINT SKB DATA:");
+	
+	printk(KERN_DEBUG  "[MORDRED LOG] T_HEADER: %d", t_header->it_len);	
+	for (tel = 0; tel < 28; tel++)
+	{
+		//printk(KERN_DEBUG "head %02x", head_arr[tel]);
+	}
+	*/
+	printk(KERN_DEBUG  "DATA FOR PHY INJECTION");	
+	for (i = 0; i < 8; i++)
+	{		
+		printk(KERN_DEBUG "TIMESTAMP %02x", head_arr[i+offset_timestamp]);
+		if(i < 3)
+			signal_field[i] = head_arr[i+offset_timestamp];
+	}
+
 
 	if (test_mode==1){
 		printk("%s openwifi_tx: WARNING test_mode==1\n", sdr_compatible_str);
@@ -868,7 +929,23 @@ static void openwifi_tx(struct ieee80211_hw *dev,
 	}
 	
 	skb_push( skb, LEN_PHY_HEADER );
+
 	rate_signal_value = calc_phy_header(rate_hw_value, use_ht_rate, use_short_gi, len_mac_pdu+LEN_PHY_CRC, skb->data); //fill the phy header
+
+	printk(KERN_DEBUG  "BEFORE INJECTING SIGNAL FIELD");	
+	for (i = 0; i < 3; i++)
+	{		
+		printk(KERN_DEBUG "b%d %02x", i, skb->data[i]);
+		skb->data[i] = signal_field[i];
+	}
+
+	printk(KERN_DEBUG "AFTER INJECTING SIGNAL FIELD");	
+	for (i = 0; i < 3; i++)
+	{		
+		printk(KERN_DEBUG "b%d %02x", i, skb->data[i]);
+	}
+
+
 
 	//make sure dma length is integer times of DDC_NUM_BYTE_PER_DMA_SYMBOL
 	if (skb_tailroom(skb)<num_byte_pad) {
