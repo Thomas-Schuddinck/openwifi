@@ -1,0 +1,20 @@
+# folders
+.vscode
+
+
+# Object files
+*.o
+*.ko
+
+# Kernel Module Compile Results
+*.mod*
+*.cmd
+*modules.order
+*Module.symvers
+.tmp_versions/
+
+# Specific files
+*driver/pre_def.h
+*driver/git_rev.h
+*user_space/side_ch_ctl_src/iq.txt
+
