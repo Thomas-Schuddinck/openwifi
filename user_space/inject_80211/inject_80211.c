@@ -21,8 +21,13 @@
 // Thanks for contributions:
 // 2007-03-15 fixes to getopt_long code by Matteo Croce rootkit85@yahoo.it
 
+// Modified by: Thomas Schuddinck
+// Year: 2021-2022
+
 #include "inject_80211.h"
 #include "radiotap.h"
+#include <stdbool.h>
+
 
 #define BUF_SIZE_MAX   (1536)
 #define BUF_SIZE_TOTAL (BUF_SIZE_MAX+1) // +1 in case the sprintf insert the last 0
@@ -45,7 +50,7 @@ static const u8 u8aRadiotapHeader[] =
 	0x00, 0x00, // <-- radiotap version
 	0x1c, 0x00, // <- radiotap header length
 	0x6f, 0x08, 0x08, 0x00, // <-- bitmap
-	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // <-- timestamp
+	0x12, 0x34, 0x56, 0xaa, 0xaa, 0xaa, 0xaa, 0xaa, // <-- timestamp
 	0x00, // <-- flags (Offset +0x10)
 	0x6c, // <-- rate (0ffset +0x11)
 	0x71, 0x09, 0xc0, 0x00, // <-- channel
@@ -55,6 +60,7 @@ static const u8 u8aRadiotapHeader[] =
 	0x02, 0x00, 0x0f,  // <-- MCS
 };
 
+#define	OFFSET_TMSTMP 0x8
 #define	OFFSET_RATE 0x11
 #define MCS_OFFSET 0x19
 #define GI_OFFSET 0x1a
@@ -139,6 +145,10 @@ void usage(void)
 	    "-n/--num_packets <number of packets>\n"
 	    "-s/--payload_size <payload size in bytes>\n"
 	    "-d/--delay <delay between packets in usec>\n"
+		"-c/--signal_fields <hexadecimal representation of signal field for PHY fuzzing> (hex value. example:\n"
+		"     0xff2345\n"
+		"     WARNING: the signal field is 24 bits, or 3 bytes long, so the value can't be longer than that.\n"
+		"     if the value contains less than six hexadecimal values, they will be supplemented with zeros at the front."
 	    "-h   this menu\n\n"
 
 	    "Example:\n"
@@ -146,7 +156,7 @@ void usage(void)
 	    "  inject_80211 mon0\n"
 	    "\n");
 	exit(1);
-}
+}   
 
 
 int main(int argc, char *argv[])
@@ -156,6 +166,11 @@ int main(int argc, char *argv[])
 	int i, nLinkEncap = 0, r, rate_index = 0, sgi_flag = 0, num_packets = 10, payload_size = 64, packet_size, nDelay = 100000;
 	int ieee_hdr_len, payload_len;
 	pcap_t *ppcap = NULL;
+
+	bool fuzz_phy = false; 
+	u8 signal_field[3];
+	u8 signal_u8_temp;
+	unsigned long int signal_long;
 
 	while (1)
 	{
@@ -172,10 +187,11 @@ int main(int argc, char *argv[])
 			{ "num_packets", required_argument, NULL, 'n' },
 			{ "payload_size", required_argument, NULL, 's' },
 			{ "delay", required_argument, NULL, 'd' },
+			{ "signal_field", required_argument, NULL, 'c' },
 			{ "help", no_argument, &flagHelp, 1 },
 			{ 0, 0, 0, 0 }
 		};
-		int c = getopt_long(argc, argv, "m:r:t:e:a:b:i:n:s:d:h", optiona, &nOptionIndex);
+		int c = getopt_long(argc, argv, "m:r:t:e:a:b:i:n:s:d:c:h", optiona, &nOptionIndex);
 
 		if (c == -1)
 			break;
@@ -227,6 +243,20 @@ int main(int argc, char *argv[])
 				nDelay = atoi(optarg);
 				break;
 
+			case 'c':
+				signal_long = strtol(optarg, NULL, 0);
+				if(signal_long > 16777215){
+					usage();
+				} 
+				for(i = 2; i >= 0; i--){
+					signal_u8_temp = ((unsigned char) (signal_long % 256));
+					signal_long = signal_long / 256;
+					signal_field[i] = signal_u8_temp;
+				}
+				fuzz_phy = true;
+
+				break;
+
 			default:
 				printf("unknown switch %c\n", c);
 				usage();
@@ -236,7 +266,7 @@ int main(int argc, char *argv[])
 
 	if (optind >= argc)
 		usage();
-
+	
 	// open the interface in pcap
 	szErrbuf[0] = '\0';
 	ppcap = pcap_open_live(argv[optind], 800, 1, 20, szErrbuf);
@@ -316,7 +346,8 @@ int main(int argc, char *argv[])
 	payload_len = strlen(rand_char);
 	
 	packet_size = sizeof(u8aRadiotapHeader) + ieee_hdr_len + payload_len;
-	printf("mode = 802.11%c, rate index = %d, SHORT GI = %d, number of packets = %d and packet size = %d bytes, delay = %d usec\n", hw_mode, rate_index, sgi_flag, num_packets, packet_size, nDelay);
+
+	printf("\n\nmode = 802.11%c, rate index = %d, SHORT GI = %d, number of packets = %d and packet size = %d bytes, delay = %d usec\n", hw_mode, rate_index, sgi_flag, num_packets, packet_size, nDelay);
 	printf("packet_type %c sub_type %x payload_len %d ieee_hdr_len %d addr1 %02x addr2 %02x\n", packet_type, sub_type, payload_len, ieee_hdr_len, addr1, addr2);
 
 	if (packet_size > BUF_SIZE_MAX) {
@@ -342,6 +373,23 @@ int main(int argc, char *argv[])
 			buffer[GI_OFFSET] = IEEE80211_RADIOTAP_MCS_SGI;
 		buffer[MCS_RATE_OFFSET] = rate_index;
 	}
+	// inject signal field values in the timestamp field
+	if(fuzz_phy){
+		for(i = 0; i < 8; i++){
+			if(i < 3)
+				buffer[OFFSET_TMSTMP+i] = signal_field[i];
+			else
+				buffer[OFFSET_TMSTMP+i] = 0xaa;  
+		} 
+	}
+
+	printf("Timestamp in hex:");
+	int t;
+	for(t=8; t< 16;t++){
+		printf(" x%02x", buffer[t]);
+	}
+	printf("\n");
+
 	// Insert IEEE DATA header
 	memcpy(buffer + sizeof(u8aRadiotapHeader), ieee_hdr, ieee_hdr_len);
 	// Insert IEEE DATA payload
@@ -356,7 +404,7 @@ int main(int argc, char *argv[])
 			return (1);
 		}
 
-		printf("number of packets sent = %d\r", i);
+		printf("number of packets sent = %d\n\r", i);
 		fflush(stdout);
 
 		if (nDelay)
