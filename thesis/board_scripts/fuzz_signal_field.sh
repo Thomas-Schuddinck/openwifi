@@ -28,7 +28,7 @@ do
                 echo "provide an argument for number of repetitions"
                 exit -1
             fi
-            if [[ $numberOfRepetitions < 1 ]]; then
+            if [[ $numberOfRepetitions -lt 1 ]]; then
                 echo "number of repetitions must be strictly positive!"
                 exit -1
             fi
@@ -56,11 +56,11 @@ do
             else
                 startPosition=$temp
             fi
-            if [[ $startPosition < 0 ]]; then
+            if [[ $startPosition -lt 0 ]]; then
                 echo "start position must be positive!"
                 exit -1
             fi
-            if [[ $startPosition > 16777215 ]]; then
+            if [[ $startPosition -gt 16777215 ]]; then
                 echo "start position must be less than 16777215 (or 0xffffff)"
                 exit -1
             fi
@@ -71,7 +71,7 @@ do
                 echo "provide an argument for time between injections (in seconds)"
                 exit -1
             fi
-            if [[ $sleepTime < 0 ]]; then
+            if [[ $sleepTime -lt 0 ]]; then
                 echo "sleep time must be positive!"
                 exit -1
             fi
@@ -98,7 +98,7 @@ echo "start position = $startPosition"
 
 if [[ $type = "i" ]] ; then
     while [[ $i -lt $numberOfInjections ]]; do
-	if [[  $startPosition > 16777215 ]]; then
+	if [[  $startPosition -gt 16777215 ]]; then
 		echo "signal field reached max value. Exiting..."
 		exit 0
 	fi
