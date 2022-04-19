@@ -14,9 +14,10 @@
 
 bool is_valid_signal_field(unsigned long int signal_field, bool is_reverse_bit_order){
         
-    int length, parity_checker;
-	u8 tail, parity, reserved, rate, rate_value, parity_count;
+    int length;
+	u8 tail, parity, reserved, rate, rate_value;
 	bool is_valid = true;
+	bool is_parity_correct = check_parity(signal_field);
 
 	// reverse the bit order if necessary
 	if(is_reverse_bit_order){
@@ -30,7 +31,6 @@ bool is_valid_signal_field(unsigned long int signal_field, bool is_reverse_bit_o
 	// extract parity
 	parity = signal_field & 0x01;
 	signal_field = signal_field>>1;
-	parity_checker = signal_field;
 	
 	// extract length
 	length = signal_field & 0x0fff;
@@ -44,16 +44,7 @@ bool is_valid_signal_field(unsigned long int signal_field, bool is_reverse_bit_o
 	rate = signal_field & 0x0f;
 	
 	// get rate value
-	rate_value = bits_to_rates[rate];
-	
-	// check parity
-	parity_count = 0;
-	while(parity_checker != 00){
-	    if(parity_checker & 0x01){
-	        parity_count++;
-	    }
-	    parity_checker = parity_checker >> 1;
-	}	
+	rate_value = bits_to_rates[rate];	
 	
 	printf("name:\t\tdec\thex\t\tdescription\n");
 	printf("----------------------------------------------------\n");
@@ -74,7 +65,7 @@ bool is_valid_signal_field(unsigned long int signal_field, bool is_reverse_bit_o
 
 	printf("length:\t\t%d\t0x%04x\t\tpacket is %d bytes long\n", length, length, length);
 
-	if((parity + parity_count) % 2 == 0){
+	if(is_parity_correct){
 		printf("parity:\t\t%d\t0x%02x\t\t%s\n", parity, parity, "legal");
 	} else {
 		printf("parity:\t\t%d\t0x%02x\t\t%s\n", parity, parity, "illegal (first 18 bit contain uneven '1' bits)");
@@ -97,12 +88,12 @@ void usage(void)
 {
 	printf(
 	    "(c)2022 Thomas Schuddinck <thomas.schuddinck@gmail.com> \n"
-	    "Usage: signal_field_dissector [options]\n\nOptions\n"
-		"-f/--signal_field <hexadecimal representation of signal field for PHY fuzzing> (hex value. example:\n"
+	    "Usage: signal_field_dissector [options]\n\nOptions"
+		"\n-f/--signal_field <hexadecimal representation of signal field for PHY fuzzing> (hex value. example:\n"
 		"     0xff2345\n"
 		"     WARNING: the signal field is 24 bits, or 3 bytes long, so the value can't be longer than that.\n"
 		"     if the value contains less than six hexadecimal values, they will be supplemented with zeros at the front."
-	    "-r/--the bit order (per byte) is reversed\n"
+	    "\n-r/--the bit order (per byte) is reversed\n"
 
 	    "Example:\n"
 	    "  signal_field_dissector -f Ox8b0a00 -r \n"
@@ -115,6 +106,7 @@ int main(int argc, char *argv[])
 {
 	unsigned long int signal_field;
 	bool is_reverse_bit_order = false;
+	bool field_parsed = false;
 
 	while (1)
 	{
@@ -134,9 +126,9 @@ int main(int argc, char *argv[])
 			case 'f':
 				signal_field = strtol(optarg, NULL, 0);
 				if(signal_field > 16777215){
-					printf("Illegal length for input (max 0xffffff or 16777215!\n");
-					exit (-1);
+					usage();
 				} 
+				field_parsed = true;
 				break;
 			case 'r':
 				is_reverse_bit_order = true;
@@ -149,8 +141,12 @@ int main(int argc, char *argv[])
 		}
 	}
 
+	if(!field_parsed){
+		usage();
+	} 
+
 	
 	printf("\n--------------------------------------\nThe provided signal field is %svalid\n--------------------------------------\n",
-	 is_valid_signal_field(signal_field, is_reverse_bit_order) ? "" : "NOT ");	
+	is_valid_signal_field(signal_field, is_reverse_bit_order) ? "" : "NOT ");	
 	return (0);
 }
