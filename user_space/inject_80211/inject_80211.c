@@ -27,6 +27,7 @@
 #include "inject_80211.h"
 #include "radiotap.h"
 #include <stdbool.h>
+#include "signal_field_utilities.h"
 
 
 #define BUF_SIZE_MAX   (1536)
@@ -149,6 +150,7 @@ void usage(void)
 		"     0xff2345\n"
 		"     WARNING: the signal field is 24 bits, or 3 bytes long, so the value can't be longer than that.\n"
 		"     if the value contains less than six hexadecimal values, they will be supplemented with zeros at the front."
+	    "-d/--delay <delay between packets in usec>\n"
 	    "-h   this menu\n\n"
 
 	    "Example:\n"
@@ -373,16 +375,19 @@ int main(int argc, char *argv[])
 			buffer[GI_OFFSET] = IEEE80211_RADIOTAP_MCS_SGI;
 		buffer[MCS_RATE_OFFSET] = rate_index;
 	}
+
+	printf("FUZZ PHY: %s\n", fuzz_phy ? "yes" : "no");
 	// inject signal field values in the timestamp field
+	
 	if(fuzz_phy){
 		for(i = 0; i < 8; i++){
 			if(i < 3)
-				buffer[OFFSET_TMSTMP+i] = signal_field[i];
+				buffer[OFFSET_TMSTMP+i] = reverse_byte(signal_field[i]);
 			else
 				buffer[OFFSET_TMSTMP+i] = 0xaa;  
 		} 
 	}
-
+	
 	printf("Timestamp in hex:");
 	int t;
 	for(t=8; t< 16;t++){
