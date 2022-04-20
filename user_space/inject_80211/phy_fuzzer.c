@@ -318,7 +318,7 @@ int main(int argc, char *argv[])
 			printf("INVALID JUMP VALUE\n");
 			usage();
 		} 
-		if (signal_field > max_val_sig)
+		if (signal_field > max_val_sig){ 
 			printf("INVALID SIGNAL FIELD\n");
 			usage();
 		} 
