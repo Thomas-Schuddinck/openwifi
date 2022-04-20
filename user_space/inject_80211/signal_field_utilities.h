@@ -5,7 +5,10 @@
 
 typedef unsigned char u8;
 
-static const long int MAX_VALUE_SIGNAL_FIELD = 0xffffff;
+static const long int MAX_VALUE_LEGACY_SIGNAL_FIELD = 0xffffff;
+
+static const long long int MAX_VALUE_HT_SIGNAL_FIELD = 0xffffffffffff;
+
 
 static const long int OFFSET_TMSTMP = 0x8;
 
@@ -16,11 +19,11 @@ u8 reverse_byte(u8 b){
 	return b;
 } 
 
-unsigned long int switch_bit_order_signal_field(unsigned long int signal_field){
+unsigned long int switch_bit_order_signal_field(unsigned long int signal_field, bool is_legacy_signal_field){
 	int i;
 	unsigned long int result = 0;
-	u8 byte;
-	for (i = 0; i < 3; i++)
+	u8 byte, field_size = (is_legacy_signal_field ? 3 : 6);
+	for (i = 0; i < field_size ; i++)
 	{
 		byte = signal_field & 0xff;
 		signal_field = signal_field >> 8;
@@ -30,7 +33,11 @@ unsigned long int switch_bit_order_signal_field(unsigned long int signal_field){
 	return result;
 } 
 
-bool check_parity(unsigned long int signal_field){
+bool check_parity(unsigned long int signal_field, bool is_legacy_signal_field){
+	if(!is_legacy_signal_field){
+		printf("HT MODE is not supported yet");
+		exit(1);
+	} 
     u8 parity_count = 0;
     // remove tail bits
     signal_field = signal_field >> 6;
@@ -43,44 +50,49 @@ bool check_parity(unsigned long int signal_field){
     return parity_count %2 == 0;
 } 
 
-unsigned long int correct_parity(unsigned long int signal_field, bool bits_reverse_order){
+unsigned long int correct_parity(unsigned long int signal_field, bool bits_reverse_order, bool is_legacy_signal_field){
+	if(!is_legacy_signal_field){
+		printf("HT MODE is not supported yet");
+		exit(1);
+	} 
 	if(bits_reverse_order)
-        signal_field = switch_bit_order_signal_field(signal_field);
+        signal_field = switch_bit_order_signal_field(signal_field, is_legacy_signal_field);
     
-    if(!check_parity(signal_field))
+    if(!check_parity(signal_field, is_legacy_signal_field))
         signal_field = signal_field ^ 0x40;
 
 	if(bits_reverse_order)
-        signal_field = switch_bit_order_signal_field(signal_field);
+        signal_field = switch_bit_order_signal_field(signal_field, is_legacy_signal_field);
 
 	return signal_field;
 }
 
-char * to_hex_string(unsigned long int signal_field, bool bits_reverse_order){
+char * to_hex_string(unsigned long int signal_field, bool bits_reverse_order, bool is_legacy_signal_field){
     if(bits_reverse_order)
-        signal_field = switch_bit_order_signal_field(signal_field);
+        signal_field = switch_bit_order_signal_field(signal_field, is_legacy_signal_field);
     char * ret = (char *) malloc(9); 
     sprintf(ret, "0x%02x%02x%02x", (u8) (signal_field >> 16) , (u8) (signal_field >> 8) & 0xff, (u8) signal_field & 0xff);
     return ret; 
 } 
 
-unsigned long int to_unsigned_long_int(u8 * signal_field, bool bits_reverse_order){
+unsigned long int to_unsigned_long_int(u8 * signal_field, bool bits_reverse_order, bool is_legacy_signal_field){
     int i;
     unsigned long int result = 0;
     for (i = 0; i < 3; i++)
         result = result << 8 | signal_field[i]; 
 
     if(bits_reverse_order)
-        result = switch_bit_order_signal_field(result);
+        result = switch_bit_order_signal_field(result, is_legacy_signal_field);
 
     return result; 
 } 
 
-void to_u8_array(unsigned long int signal_field, u8 * array,  bool bits_reverse_order){
+void to_u8_array(unsigned long int signal_field, u8 * array, bool bits_reverse_order, bool is_legacy_signal_field){
+	u8 init_val = (is_legacy_signal_field ? 2 : 5); 
     int i;
     if(bits_reverse_order)
-        signal_field = switch_bit_order_signal_field(signal_field);
-    for (i = 2; i >=0; i--){
+        signal_field = switch_bit_order_signal_field(signal_field, is_legacy_signal_field);
+    for (i = init_val; i >=0; i--){
         array[i] = signal_field & 0xff; 
         signal_field = signal_field >> 8;
     } 

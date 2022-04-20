@@ -9,19 +9,20 @@
  * @brief Check if the provided signal field is valid 
  * @param sf the provided signal field
  * @param is_reverse_bit_order whether the field is in reverse bitorder or not 
+ * @param is_legacy_signal_field) whether the legacy or greenfield/HT mode is used 
  * @return whether the signal field is valid or not
  */
 
-bool is_valid_signal_field(unsigned long int signal_field, bool is_reverse_bit_order){
+bool is_valid_signal_field(unsigned long int signal_field, bool is_reverse_bit_order, bool is_legacy_signal_field){
         
     int length;
 	u8 tail, parity, reserved, rate, rate_value;
 	bool is_valid = true;
-	bool is_parity_correct = check_parity(signal_field);
+	bool is_parity_correct = check_parity(signal_field, is_legacy_signal_field);
 
 	// reverse the bit order if necessary
 	if(is_reverse_bit_order){
-		signal_field = switch_bit_order_signal_field(signal_field);
+		signal_field = switch_bit_order_signal_field(signal_field, is_legacy_signal_field);
 	} 
 
 	// extract tail
@@ -94,7 +95,8 @@ void usage(void)
 		"     WARNING: the signal field is 24 bits, or 3 bytes long, so the value can't be longer than that.\n"
 		"     if the value contains less than six hexadecimal values, they will be supplemented with zeros at the front."
 	    "\n-r/--the bit order (per byte) is reversed\n"
-
+		"-m/--signal_field_mode <signal field mode> (l[egacy],g[reenfield/high throughput],h[ybrid])\n"
+		"     [NOTE] hybrid and greenfield mode are not yet supported\n"
 	    "Example:\n"
 	    "  signal_field_dissector -f Ox8b0a00 -r \n"
 	    "\n");
@@ -105,19 +107,20 @@ void usage(void)
 int main(int argc, char *argv[])
 {
 	unsigned long int signal_field;
-	bool is_reverse_bit_order = false;
-	bool field_parsed = false;
+	bool is_reverse_bit_order = false, field_parsed = false, is_legacy_signal_field = true;
+	char signal_field_mode = 'l';
 
 	while (1)
 	{
 		int nOptionIndex;
 		static const struct option options[] =
 		{			
-			{ "signal_field", required_argument, NULL, 'f' },
-			{ "is_reverse_bit_order", no_argument, NULL, 'r' },
+			{ "signal_field", 			required_argument, 	NULL, 'f' },
+			{ "is_reverse_bit_order", 	no_argument, 		NULL, 'r' },
+			{ "signal_field_mode", 		required_argument, 	NULL, 'm'},
 			{ 0, 0, 0, 0 }
 		};
-		int c = getopt_long(argc, argv, "f:r", options, &nOptionIndex);
+		int c = getopt_long(argc, argv, "f:m:r", options, &nOptionIndex);
  
 		if (c == -1)
 			break;
@@ -134,6 +137,13 @@ int main(int argc, char *argv[])
 				is_reverse_bit_order = true;
 				break;
 
+			case 'm':
+				signal_field_mode = optarg[0];
+				if (signal_field_mode != 'l' && signal_field_mode != 'g')
+					usage();
+				is_legacy_signal_field = signal_field_mode == 'l';
+				break;
+
 			default:
 				printf("unknown switch %c\n", c);
 				usage();
@@ -141,12 +151,15 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	if(!field_parsed){
+	if(!field_parsed || !is_legacy_signal_field ){
 		usage();
 	} 
-
 	
-	printf("\n--------------------------------------\nThe provided signal field is %svalid\n--------------------------------------\n",
-	is_valid_signal_field(signal_field, is_reverse_bit_order) ? "" : "NOT ");	
+	printf(
+		"\n--------------------------------------\n"
+		"The provided signal field is %svalid"
+		"\n--------------------------------------\n",
+		is_valid_signal_field(signal_field, is_reverse_bit_order, is_legacy_signal_field) ? "" : "NOT "
+	);	
 	return (0);
 }

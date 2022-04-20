@@ -147,7 +147,9 @@ void usage(void)
 		"     0xff2345\n"
 		"     WARNING: the signal field is 24 bits, or 3 bytes long, so the value can't be longer than that.\n"
 		"     if the value contains less than six hexadecimal values, they will be supplemented with zeros at the front."
-		"-f/--fuzzing_mode <fuzzing mode> (i,r)>\n"
+		"-f/--fuzzing_mode <fuzzing mode> (i[nremental],r[andom])>\n"
+		"-q/--signal_field_mode <signal field mode> (l[egacy],g[reenfield/high throughput],h[ybrid])\n"
+		"     [NOTE] hybrid mode is not yet supported\n"
 		"-j/--jump_size <the value to increment the signal field after every single fuzz>\n"
 		"-o/--byte_order_is_reversed <in case the signal field uses reverse bit order>\n"
 		"-p/--fix_parity_bit <correct invalid parity bit>\n"
@@ -182,38 +184,39 @@ int inject_packet(pcap_t *ppcap, u8 *buffer, int packet_size, int nDelay, int nu
 int main(int argc, char *argv[])
 {
 	u8 buffer[BUF_SIZE_TOTAL], addr1 = 1, addr2 = 2, sub_type = 1, *ieee_hdr;
-	char szErrbuf[PCAP_ERRBUF_SIZE], rand_char[1484], hw_mode = 'n', packet_type = 'd', fuzzing_mode = 'i';
+	char szErrbuf[PCAP_ERRBUF_SIZE], rand_char[1484], hw_mode = 'n', packet_type = 'd', fuzzing_mode = 'i', signal_field_mode = 'l';
 	int i, nLinkEncap = 0, rate_index = 0, sgi_flag = 0, num_packets = 10, payload_size = 64, packet_size, nDelay = 100000;
 	int ieee_hdr_len, payload_len, result;
 	pcap_t *ppcap = NULL;
 
-	bool fuzz_phy = false, fix_parity_bit = false, byte_order_is_reversed = false;
-	unsigned long int signal_field, jump_size = 1;
-	u8 signal_field_arr[3]; 
+	bool fuzz_phy = false, fix_parity_bit = false, byte_order_is_reversed = false, is_legacy_signal_field = true;
+	unsigned long long int signal_field, jump_size = 1, max_val_sig;
+	u8 signal_field_arr[6]; 
 
 	while (1)
 	{
 		int nOptionIndex;
 		static const struct option optiona[] =
 			{
-				{"hw_mode", required_argument, NULL, 'm'},
-				{"rate_index", required_argument, NULL, 'r'},
-				{"packet_type", required_argument, NULL, 't'},
-				{"sub_type", required_argument, NULL, 'e'},
-				{"addr1", required_argument, NULL, 'a'},
-				{"addr2", required_argument, NULL, 'b'},
-				{"sgi_flag", no_argument, NULL, 'i'},
-				{"num_packets", required_argument, NULL, 'n'},
-				{"payload_size", required_argument, NULL, 's'},
-				{"delay", required_argument, NULL, 'd'},
-				{"signal_field", required_argument, NULL, 'c'},
-				{"fuzzing_mode", required_argument, NULL, 'f'},
-				{"jump_size", required_argument, NULL, 'j'},
-				{"fix_parity_bit", no_argument, NULL, 'p'},
-				{"byte_order_is_reversed", no_argument, NULL, 'o'},
-				{"help", no_argument, &flagHelp, 1},
+				{"hw_mode", 				required_argument, 	NULL, 'm'},
+				{"rate_index", 				required_argument, 	NULL, 'r'},
+				{"packet_type", 			required_argument, 	NULL, 't'},
+				{"sub_type", 				required_argument, 	NULL, 'e'},
+				{"addr1", 					required_argument, 	NULL, 'a'},
+				{"addr2", 					required_argument, 	NULL, 'b'},
+				{"sgi_flag", 				no_argument, 		NULL, 'i'},
+				{"num_packets", 			required_argument, 	NULL, 'n'},
+				{"payload_size", 			required_argument, 	NULL, 's'},
+				{"delay", 					required_argument, 	NULL, 'd'},
+				{"signal_field", 			required_argument, 	NULL, 'c'},
+				{"fuzzing_mode", 			required_argument, 	NULL, 'f'},
+				{"signal_field_mode", 		required_argument, 	NULL, 'q'},
+				{"jump_size", 				required_argument, 	NULL, 'j'},
+				{"fix_parity_bit", 			no_argument, 		NULL, 'p'},
+				{"byte_order_is_reversed", 	no_argument, 		NULL, 'o'},
+				{"help", 					no_argument, 		&flagHelp, 1},
 				{0, 0, 0, 0}};
-		int c = getopt_long(argc, argv, "m:r:t:e:a:b:i:n:s:d:c:f:j:hpo", optiona, &nOptionIndex);
+		int c = getopt_long(argc, argv, "m:r:t:e:a:b:i:n:s:d:c:f:q:j:hpo", optiona, &nOptionIndex);
 
 		if (c == -1)
 			break;
@@ -275,20 +278,25 @@ int main(int argc, char *argv[])
 
 		case 'j':
 			jump_size = strtol(optarg, NULL, 0);
-			if (jump_size < 1 || signal_field > 16777215)
-				usage();
 			break;
 
 		case 'f':
 			fuzzing_mode = optarg[0];
 			break;
 
+		case 'q':
+			signal_field_mode = optarg[0];
+			if (signal_field_mode != 'l' && signal_field_mode != 'g'){
+				printf("INVALID SIGNAL FIELD MODE\n");
+				usage();
+			} 
+				
+			is_legacy_signal_field = signal_field_mode == 'l';
+			break;
+
 		case 'c':
 			signal_field = strtol(optarg, NULL, 0);
-			if (signal_field > 16777215)
-				usage();
 			fuzz_phy = true;
-
 			break;
 
 		default:
@@ -300,6 +308,21 @@ int main(int argc, char *argv[])
 
 	if (optind >= argc)
 		usage();
+
+	// in case the physical layer should be fuzzed
+	if(fuzz_phy){
+		// init the max value depending on which signal field is used (legacy or greenfield/HT)
+		max_val_sig = (is_legacy_signal_field ? MAX_VALUE_LEGACY_SIGNAL_FIELD : MAX_VALUE_HT_SIGNAL_FIELD);
+
+		if (jump_size < 1 || signal_field > max_val_sig){
+			printf("INVALID JUMP VALUE\n");
+			usage();
+		} 
+		if (signal_field > max_val_sig)
+			printf("INVALID SIGNAL FIELD\n");
+			usage();
+		} 
+	} 
 
 	// open the interface in pcap
 	szErrbuf[0] = '\0';
@@ -424,24 +447,24 @@ int main(int argc, char *argv[])
 
 			if (byte_order_is_reversed)
 			{
-				signal_field = switch_bit_order_signal_field(signal_field);
+				signal_field = switch_bit_order_signal_field(signal_field, is_legacy_signal_field);
 			}
 			for (i = 1; i <= num_packets; i++)
 			{
 				if (fix_parity_bit){
 					printf("fix parity\n");
-					signal_field = correct_parity(signal_field, false);
+					signal_field = correct_parity(signal_field, false, is_legacy_signal_field);
 				} 
 					
 
-				to_u8_array(signal_field, signal_field_arr, false);
+				to_u8_array(signal_field, signal_field_arr, false, is_legacy_signal_field);
 				inject_signal_field(buffer, signal_field_arr);
 				result = inject_packet(ppcap, buffer, packet_size, nDelay, 1);
 
 				if(result)
 					return (1);
 
-				if (signal_field > MAX_VALUE_SIGNAL_FIELD - jump_size)
+				if (signal_field > max_val_sig - jump_size)
 				{
 					printf("signal field reached the maximum value. Exiting..\n.");
 					return (0);
@@ -456,17 +479,16 @@ int main(int argc, char *argv[])
 
 			for (i = 0; i <= num_packets; i++)
 			{
-				signal_field = (rand() % (MAX_VALUE_SIGNAL_FIELD + i));
+				signal_field = (rand() % (max_val_sig + i));
 				if (fix_parity_bit)
-					signal_field = correct_parity(signal_field, false);
+					signal_field = correct_parity(signal_field, false, is_legacy_signal_field);
 
-				to_u8_array(signal_field, signal_field_arr, false);
+				to_u8_array(signal_field, signal_field_arr, false, is_legacy_signal_field);
 				inject_signal_field(buffer, signal_field_arr);
 				result = inject_packet(ppcap, buffer, packet_size, nDelay, i);
 
 				if(result)
 					return (1);
-
 				i++;
 			}
 		}
