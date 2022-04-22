@@ -22,7 +22,7 @@ bool is_valid_signal_field(unsigned long int signal_field, bool is_reverse_bit_o
 
 	// reverse the bit order if necessary
 	if(is_reverse_bit_order){
-		signal_field = switch_bit_order_signal_field(signal_field, is_legacy_signal_field);
+		signal_field = switch_bit_order(signal_field, is_legacy_signal_field);
 	} 
 
 	// extract tail

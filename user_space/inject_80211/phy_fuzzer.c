@@ -143,18 +143,23 @@ void usage(void)
 		"-n/--num_packets <number of packets>\n"
 		"-s/--payload_size <payload size in bytes>\n"
 		"-d/--delay <delay between packets in usec>\n"
-		"-c/--signal_fields <hexadecimal representation of signal field for PHY fuzzing> (hex value. example:\n"
+		"-c/--signal_field <hexadecimal representation of signal field for PHY fuzzing> (hex value. example:\n"
 		"     0xff2345\n"
 		"     WARNING: the signal field is 24 bits, or 3 bytes long, so the value can't be longer than that.\n"
 		"     if the value contains less than six hexadecimal values, they will be supplemented with zeros at the front."
+		"-g/-mac_fuzz_field <hexadecimal representation of first 4 bytes of MAC hdr> (hex value. example:\n"
+		"     0xff012345\n"
+		"     WARNING: the fuzzed hdr field is 32 bits, or 4 bytes long, so the value can't be longer than that.\n"
+		"     if the value contains less than eight hexadecimal values, they will be supplemented with zeros at the front."
+		"     The fields you fuzz are: FC, subtype, type, version, toDS and fromDS"
 		"-f/--fuzzing_mode <fuzzing mode> (i[nremental],r[andom])>\n"
 		"-q/--signal_field_mode <signal field mode> (l[egacy],g[reenfield/high throughput],h[ybrid])\n"
 		"     [NOTE] hybrid mode is not yet supported\n"
 		"-j/--jump_size <the value to increment the signal field after every single fuzz>\n"
+		"-j/--jump_size_mac <the value to increment the fuzzed mac header field after every single fuzz>\n"
 		"-o/--byte_order_is_reversed <in case the signal field uses reverse bit order>\n"
 		"-p/--fix_parity_bit <correct invalid parity bit>\n"
 		"-h   this menu\n\n"
-
 		"Example:\n"
 		"  iw dev wlan0 interface add mon0 type monitor && ifconfig mon0 up\n"
 		"  inject_80211 mon0\n"
@@ -189,8 +194,8 @@ int main(int argc, char *argv[])
 	int ieee_hdr_len, payload_len, result;
 	pcap_t *ppcap = NULL;
 
-	bool fuzz_phy = false, fix_parity_bit = false, byte_order_is_reversed = false, is_legacy_signal_field = true;
-	unsigned long long int signal_field, jump_size = 1, max_val_sig;
+	bool fuzz_phy = false, fuzz_mac = false, fix_parity_bit = false, is_signal_field_reversed = false, is_mac_header_reversed = false, is_legacy_signal_field = true;
+	unsigned long long int signal_field, jump_size = 1, max_val_sig, mac_fuzz_field, jump_size_mac = 1;
 	u8 signal_field_arr[6]; 
 
 	while (1)
@@ -198,25 +203,28 @@ int main(int argc, char *argv[])
 		int nOptionIndex;
 		static const struct option optiona[] =
 			{
-				{"hw_mode", 				required_argument, 	NULL, 'm'},
-				{"rate_index", 				required_argument, 	NULL, 'r'},
-				{"packet_type", 			required_argument, 	NULL, 't'},
-				{"sub_type", 				required_argument, 	NULL, 'e'},
 				{"addr1", 					required_argument, 	NULL, 'a'},
 				{"addr2", 					required_argument, 	NULL, 'b'},
-				{"sgi_flag", 				no_argument, 		NULL, 'i'},
-				{"num_packets", 			required_argument, 	NULL, 'n'},
-				{"payload_size", 			required_argument, 	NULL, 's'},
-				{"delay", 					required_argument, 	NULL, 'd'},
 				{"signal_field", 			required_argument, 	NULL, 'c'},
+				{"delay", 					required_argument, 	NULL, 'd'},
+				{"sub_type", 				required_argument, 	NULL, 'e'},
 				{"fuzzing_mode", 			required_argument, 	NULL, 'f'},
-				{"signal_field_mode", 		required_argument, 	NULL, 'q'},
+				{"mac_fuzz_field", 			required_argument, 	NULL, 'g'},
+				{"sgi_flag", 				no_argument, 		NULL, 'i'},
 				{"jump_size", 				required_argument, 	NULL, 'j'},
+				{"jump_size_mac", 			required_argument, 	NULL, 'k'},
+				{"hw_mode", 				required_argument, 	NULL, 'm'},
+				{"num_packets", 			required_argument, 	NULL, 'n'},
+				{"is_signal_field_reversed",no_argument, 		NULL, 'o'},
 				{"fix_parity_bit", 			no_argument, 		NULL, 'p'},
-				{"byte_order_is_reversed", 	no_argument, 		NULL, 'o'},
+				{"signal_field_mode", 		required_argument, 	NULL, 'q'},
+				{"rate_index", 				required_argument, 	NULL, 'r'},
+				{"payload_size", 			required_argument, 	NULL, 's'},
+				{"packet_type", 			required_argument, 	NULL, 't'},
+				{"is_mac_header_reversed",	no_argument, 		NULL, 'u'},
 				{"help", 					no_argument, 		&flagHelp, 1},
 				{0, 0, 0, 0}};
-		int c = getopt_long(argc, argv, "m:r:t:e:a:b:i:n:s:d:c:f:q:j:hpo", optiona, &nOptionIndex);
+		int c = getopt_long(argc, argv, "m:r:t:e:a:b:i:n:s:d:c:f:g:q:j:k:hpou", optiona, &nOptionIndex);
 
 		if (c == -1)
 			break;
@@ -273,11 +281,19 @@ int main(int argc, char *argv[])
 			break;
 
 		case 'o':
-			byte_order_is_reversed = true;
+			is_signal_field_reversed = true;
+			break;
+
+		case 'u':
+			is_mac_header_reversed = true;
 			break;
 
 		case 'j':
 			jump_size = strtol(optarg, NULL, 0);
+			break;
+
+		case 'k':
+			jump_size_mac = strtol(optarg, NULL, 0);
 			break;
 
 		case 'f':
@@ -299,6 +315,11 @@ int main(int argc, char *argv[])
 			fuzz_phy = true;
 			break;
 
+		case 'g':
+			mac_fuzz_field = strtol(optarg, NULL, 0);
+			fuzz_mac = true;
+			break;
+
 		default:
 			printf("unknown switch %c\n", c);
 			usage();
@@ -309,12 +330,21 @@ int main(int argc, char *argv[])
 	if (optind >= argc)
 		usage();
 
+	// if mac is fuzzed, check value is valid
+	if(fuzz_mac && (mac_fuzz_field > 0xffffffff || jump_size_mac < 1 || jump_size_mac > 0xffffffff ) )
+		usage();
+	if (fuzz_mac && is_mac_header_reversed)
+	{
+		mac_fuzz_field = switch_bit_order(mac_fuzz_field, 4);
+	}
+	
+	
 	// in case the physical layer should be fuzzed
 	if(fuzz_phy){
 		// init the max value depending on which signal field is used (legacy or greenfield/HT)
 		max_val_sig = (is_legacy_signal_field ? MAX_VALUE_LEGACY_SIGNAL_FIELD : MAX_VALUE_HT_SIGNAL_FIELD);
 
-		if (jump_size < 1 || signal_field > max_val_sig){
+		if (jump_size < 1 || jump_size > max_val_sig){
 			printf("INVALID JUMP VALUE\n");
 			usage();
 		} 
@@ -439,26 +469,38 @@ int main(int argc, char *argv[])
 	// Insert IEEE DATA payload
 	sprintf((char *)(buffer + sizeof(u8aRadiotapHeader) + ieee_hdr_len), "%s", rand_char);
 
+	
+
 	// Inject packets
 	if (fuzz_phy)
 	{
 		if (fuzzing_mode == 'i')
 		{
 
-			if (byte_order_is_reversed)
+			if (is_signal_field_reversed)
 			{
-				signal_field = switch_bit_order_signal_field(signal_field, is_legacy_signal_field);
+				signal_field = switch_bit_order(signal_field, is_legacy_signal_field ? 3 : 6);
 			}
 			for (i = 1; i <= num_packets; i++)
 			{
+				if (fuzz_mac)
+				{
+					inject_mac(buffer, mac_fuzz_field);
+					mac_fuzz_field = mac_fuzz_field + jump_size_mac;
+					if (mac_fuzz_field > 0xffffffff)
+					{
+						printf("mac header field reached the maximum value. Exiting..\n.");
+						return (0);
+					}				
+				}
 				if (fix_parity_bit){
 					printf("fix parity\n");
 					signal_field = correct_parity(signal_field, false, is_legacy_signal_field);
 				} 
 					
 
-				to_u8_array(signal_field, signal_field_arr, false, is_legacy_signal_field);
-				inject_signal_field(buffer, signal_field_arr);
+				to_u8_array(signal_field, signal_field_arr, false, is_legacy_signal_field ? 3 : 6);
+				inject_signal_field(buffer, signal_field_arr, is_legacy_signal_field);
 				result = inject_packet(ppcap, buffer, packet_size, nDelay, 1);
 
 				if(result)
@@ -479,12 +521,22 @@ int main(int argc, char *argv[])
 
 			for (i = 0; i <= num_packets; i++)
 			{
+				if (fuzz_mac)
+				{
+					inject_mac(buffer, mac_fuzz_field);
+					mac_fuzz_field = mac_fuzz_field + jump_size_mac;
+					if (mac_fuzz_field > 0xffffffff)
+					{
+						printf("mac header field reached the maximum value. Exiting..\n.");
+						return (0);
+					}				
+				}
 				signal_field = (rand() % (max_val_sig + i));
 				if (fix_parity_bit)
 					signal_field = correct_parity(signal_field, false, is_legacy_signal_field);
 
-				to_u8_array(signal_field, signal_field_arr, false, is_legacy_signal_field);
-				inject_signal_field(buffer, signal_field_arr);
+				to_u8_array(signal_field, signal_field_arr, false, is_legacy_signal_field ? 3 : 6);
+				inject_signal_field(buffer, signal_field_arr, is_legacy_signal_field);
 				result = inject_packet(ppcap, buffer, packet_size, nDelay, i);
 
 				if(result)
@@ -497,6 +549,17 @@ int main(int argc, char *argv[])
 	{
 		for (i = 1; i <= num_packets; i++)
 		{
+			if (fuzz_mac)
+			{
+				inject_mac(buffer, mac_fuzz_field);
+				mac_fuzz_field = mac_fuzz_field + jump_size_mac;
+				if (mac_fuzz_field > 0xffffffff)
+				{
+					printf("mac header field reached the maximum value. Exiting..\n.");
+					return (0);
+				}				
+			}
+			
 			result = inject_packet(ppcap, buffer, packet_size, nDelay, i);
 
 			if(result)

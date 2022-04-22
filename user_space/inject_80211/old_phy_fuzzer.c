@@ -153,7 +153,7 @@ int main(int argc, char *argv[])
     // reverse the bit order in case the bits are flipped (LSB on the left)
     if (is_reverse_bit_order)
     {
-        signal_field = switch_bit_order_signal_field(signal_field);
+        signal_field = switch_bit_order(signal_field);
     }
 
     // convert non-char pointer values to char pointers
