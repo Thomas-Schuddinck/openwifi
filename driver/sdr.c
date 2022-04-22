@@ -702,13 +702,12 @@ static void openwifi_tx(struct ieee80211_hw *dev,
 	u32 rate_signal_value,rate_hw_value,ack_flag;
 	u32 pkt_need_ack, addr1_low32=0, addr2_low32=0, addr3_low32=0, queue_idx=2, dma_reg, cts_reg;//, openofdm_state_history;
 	u16 addr1_high16=0, addr2_high16=0, addr3_high16=0, sc=0, cts_duration=0, cts_rate_hw_value = 0, cts_rate_signal_value=0, sifs, ack_duration=0, traffic_pkt_duration;
-	u8 fc_flag,fc_type,fc_subtype,retry_limit_raw,*dma_buf,retry_limit_hw_value,rc_flags;
-	bool use_rts_cts, use_cts_protect, use_ht_rate=false, use_short_gi, addr_flag, cts_use_traffic_rate=false, force_use_cts_protect=false;
+	u8 fc_flag,fc_type,fc_subtype,retry_limit_raw,*dma_buf,retry_limit_hw_value,rc_flags, fuzz_phy_mode = 0;
+	bool use_rts_cts, use_cts_protect, use_ht_rate=false, use_short_gi, addr_flag, cts_use_traffic_rate=false, force_use_cts_protect=false; 
 	__le16 frame_control,duration_id;
 	u32 dma_fifo_no_room_flag, hw_queue_len;
 	enum dma_status status;
 
-	unsigned int offset_timestamp = 88;
 	unsigned char * signal_arr = (unsigned char*)skb->head;
 	
 	// static bool led_status=0;
@@ -724,8 +723,22 @@ static void openwifi_tx(struct ieee80211_hw *dev,
 	// }
 
 	printk(KERN_DEBUG "DATA FOR PHY INJECTION");	
-	printk(KERN_DEBUG "TX [TIMESTAMP] : 0x%02x %02x %02x %02x %02x %02x %02x %02x", signal_arr[offset_timestamp],signal_arr[offset_timestamp + 1],signal_arr[offset_timestamp + 2],signal_arr[offset_timestamp + 3],signal_arr[offset_timestamp + 4],signal_arr[offset_timestamp + 5],signal_arr[offset_timestamp + 6],signal_arr[offset_timestamp + 7]);
+	printk(KERN_DEBUG "TX [TIMESTAMP] : 0x%02x %02x %02x %02x %02x %02x %02x %02x", signal_arr[TIMESTAMP_OFFSET],signal_arr[TIMESTAMP_OFFSET + 1],signal_arr[TIMESTAMP_OFFSET + 2],signal_arr[TIMESTAMP_OFFSET + 3],signal_arr[TIMESTAMP_OFFSET + 4],signal_arr[TIMESTAMP_OFFSET + 5],signal_arr[TIMESTAMP_OFFSET + 6],signal_arr[TIMESTAMP_OFFSET + 7]);
 	
+	// determine fuzzing mode
+	if(signal_arr[TIMESTAMP_OFFSET + 6] == 0x00 && signal_arr[TIMESTAMP_OFFSET + 7] == 0x00)
+		printk(KERN_DEBUG "TX INJECTION MODE: NO PHY FUZZING");	
+	else {
+		if(signal_arr[TIMESTAMP_OFFSET+ 6] == 0xaa && signal_arr[TIMESTAMP_OFFSET + 7] == 0xaa){
+			printk(KERN_DEBUG "TX INJECTION MODE: LEGACY MODE");
+			fuzz_phy_mode = 1;
+		} else if (signal_arr[TIMESTAMP_OFFSET + 6] == 0xbb && signal_arr[TIMESTAMP_OFFSET + 7] == 0xbb){
+			printk(KERN_DEBUG "TX INJECTION MODE: GREENFIELD/HT MODE");
+			fuzz_phy_mode = 2;
+		} else {
+			printk(KERN_DEBUG "TX INJECTION MODE: ILLEGAL MODE => NO FUZZING");
+		} 
+	}
 
 	if (test_mode==1){
 		printk("%s openwifi_tx: WARNING test_mode==1\n", sdr_compatible_str);
@@ -890,18 +903,38 @@ static void openwifi_tx(struct ieee80211_hw *dev,
 	
 	skb_push( skb, LEN_PHY_HEADER );
 	rate_signal_value = calc_phy_header(rate_hw_value, use_ht_rate, use_short_gi, len_mac_pdu+LEN_PHY_CRC, skb->data); //fill the phy header
-	printk(KERN_DEBUG  "----------------------------------------");
-	printk(KERN_DEBUG  "BEFORE INJECTING SIGNAL FIELD");	
-	printk(KERN_DEBUG "TX [PHY HEA::before] : 0x%02x %02x %02x", skb->data[0],skb->data[1],skb->data[2]);
+	
+	// --------------------------------------- PHY FUZZING ---------------------------------------
 
-	for (i = 0; i < 3; i++)
-	{		
-		skb->data[i] = signal_arr[offset_timestamp+i];
-	}
-	printk(KERN_DEBUG "AFTER INJECTING SIGNAL FIELD");	
-	printk(KERN_DEBUG "TX [PHY HEA::after] : 0x%02x %02x %02x", skb->data[0],skb->data[1],skb->data[2]);
-	printk(KERN_DEBUG  "----------------------------------------");
+	if(fuzz_phy_mode == 1){
+		printk(KERN_DEBUG  "----------------------------------------");
+		printk(KERN_DEBUG  "BEFORE INJECTING LEGACY SIGNAL FIELD");	
+		printk(KERN_DEBUG "TX (before): 0x%02x %02x %02x", skb->data[0],skb->data[1],skb->data[2]);
 
+		for (i = 0; i < 3; i++)
+		{		
+			skb->data[i] = signal_arr[TIMESTAMP_OFFSET+i];
+		}
+		printk(KERN_DEBUG "AFTER INJECTING LEGACY SIGNAL FIELD");	
+		printk(KERN_DEBUG "TX (after): 0x%02x %02x %02x", skb->data[0],skb->data[1],skb->data[2]);
+		printk(KERN_DEBUG  "----------------------------------------");
+	} 
+	if(fuzz_phy_mode == 2){
+		printk(KERN_DEBUG  "----------------------------------------");
+		printk(KERN_DEBUG  "BEFORE INJECTING GREENFIELD/HT SIGNAL FIELD");	
+		printk(KERN_DEBUG "TX (before): 0x%02x %02x %02x %02x %02x %02x", skb->data[GREENFIELD_OFFSET+0],skb->data[GREENFIELD_OFFSET+1],skb->data[GREENFIELD_OFFSET+2], skb->data[GREENFIELD_OFFSET+3],skb->data[GREENFIELD_OFFSET+4],skb->data[GREENFIELD_OFFSET+5]);
+
+		for (i = 0; i < 6; i++)
+		{		
+			skb->data[GREENFIELD_OFFSET+i] = signal_arr[TIMESTAMP_OFFSET+i];
+		}
+		printk(KERN_DEBUG "AFTER INJECTING GREENFIELD/HT SIGNAL FIELD");	
+		printk(KERN_DEBUG "TX (after): 0x%02x %02x %02x %02x %02x %02x", skb->data[GREENFIELD_OFFSET+0],skb->data[GREENFIELD_OFFSET+1],skb->data[GREENFIELD_OFFSET+2], skb->data[GREENFIELD_OFFSET+3],skb->data[GREENFIELD_OFFSET+4],skb->data[GREENFIELD_OFFSET+5]);
+		printk(KERN_DEBUG  "----------------------------------------");
+	} 
+	
+
+	// --------------------------------------- END PHY FUZZING ---------------------------------------
 
 	//make sure dma length is integer times of DDC_NUM_BYTE_PER_DMA_SYMBOL
 	if (skb_tailroom(skb)<num_byte_pad) {
