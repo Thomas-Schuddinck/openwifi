@@ -106,21 +106,16 @@ unsigned long long int correct_parity(unsigned long long int signal_field, bool 
  * @return the field in hex string
  */
 char * to_hex_string(unsigned long long int field, bool bits_reverse_order, u8 size){
-	int i;
+	if(size < 1)
+		return "0x00";
     if(bits_reverse_order)
         field = switch_bit_order(field, size);
     char * ret;
 	ret = (char *) malloc((size)*2+3); 
 	ret[0] = '0';
 	ret[1] = 'x';
-	i = size*2;
-	while(i > 0)
-	{
-		ret[2+i] =  (u8) field & 0xf;
-		field = field >> 4;
-		i--;
-	}
-	ret[(size)*2+3] = '\0';      	
+	sprintf(&ret[2], "%02llx",field);
+	ret[(size)*2+3] = '\0';   	
     return ret; 
 } 
 
@@ -174,12 +169,19 @@ void inject_signal_field(u8 *buffer, u8 *signal_field, bool is_legacy_signal_fie
 	}
 }
 
+
+void log_injected_mac(long long int mac_field){
+	printf("MAC HDR (HR): %s\n", to_hex_string(mac_field, false, 4));
+	printf("MAC HDR (SEND OUT): %s\n", to_hex_string(mac_field, true, 4));
+} 
+
 void inject_mac(u8 *buffer, unsigned long long int mac_field){
+	log_injected_mac(mac_field);
 	u8 mac_field_arr[4];
 	to_u8_array(mac_field, mac_field_arr, false, 4); 
  	int i;
 	for (i = 0; i < 4; i++)
 	{
-		buffer[OFFSET_MAC + i] = reverse_byte(mac_field_arr[i]);
+		buffer[OFFSET_MAC + i] = mac_field_arr[i];
 	}
 }
