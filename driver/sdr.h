@@ -88,10 +88,10 @@ union u16_byte2 {
 
 #define MAX_NUM_VIF 4
 
-#define LEN_PHY_HEADER 24
+#define LEN_PHY_HEADER 16 // when Jasper has changed FPGA, change to 24
 
-#define TIMESTAMP_OFFSET 88
-#define GREENFIELD_OFFSET 16
+#define TIMESTAMP_OFFSET 20 // counting from the opposite direction 
+#define GREENFIELD_OFFSET 8 // when Jasper has changed FPGA, change to 16
 
 #define LEN_PHY_CRC 4
 
