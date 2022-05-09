@@ -1,3 +1,4 @@
+// Title:		LEGACY signal field dissector
 // Author:		Thomas Schuddinck
 // Year:		2022
 
@@ -6,23 +7,21 @@
 
 
 /**
- * @brief Check if the provided signal field is valid 
+ * @brief Check if the provided legacy signal field is valid 
  * @param sf the provided signal field
  * @param is_reverse_bit_order whether the field is in reverse bitorder or not 
- * @param is_legacy_signal_field) whether the legacy or greenfield/HT mode is used 
  * @return whether the signal field is valid or not
  */
-
-bool is_valid_signal_field(unsigned long int signal_field, bool is_reverse_bit_order, bool is_legacy_signal_field){
+bool is_valid_legacy_signal_field(unsigned long int signal_field, bool is_reverse_bit_order){
         
     int length;
 	u8 tail, parity, reserved, rate, rate_value;
 	bool is_valid = true;
-	bool is_parity_correct = check_parity(signal_field, is_legacy_signal_field);
+	bool is_parity_correct = check_parity(signal_field, true);
 
 	// reverse the bit order if necessary
 	if(is_reverse_bit_order){
-		signal_field = switch_bit_order(signal_field, is_legacy_signal_field);
+		signal_field = switch_bit_order(signal_field,  3);
 	} 
 
 	// extract tail
@@ -80,7 +79,22 @@ bool is_valid_signal_field(unsigned long int signal_field, bool is_reverse_bit_o
 		is_valid = false;
 	} 	
 
-	return is_valid;
+	return is_valid;	
+} 
+
+
+
+/**
+ * @brief Check if the provided greenfield signal field is valid 
+ * @param sf the provided signal field
+ * @param is_reverse_bit_order whether the field is in reverse bitorder or not 
+ * @return whether the signal field is valid or not
+ */
+bool is_valid_greenfield_signal_field(unsigned long int signal_field, bool is_reverse_bit_order){
+        
+	// NOT SUPPORTED YET
+
+	return false;
 	
 } 
 
@@ -98,7 +112,7 @@ void usage(void)
 		"-m/--signal_field_mode <signal field mode> (l[egacy],g[reenfield/high throughput],h[ybrid])\n"
 		"     [NOTE] hybrid and greenfield mode are not yet supported\n"
 	    "Example:\n"
-	    "  signal_field_dissector -f Ox8b0a00 -r \n"
+	    "  signal_field_dissector -f Ox8b0a00 -m l -r\n"
 	    "\n");
 	exit(1);
 }   
@@ -151,15 +165,17 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	if(!field_parsed || !is_legacy_signal_field ){
+	if(!field_parsed ){
 		usage();
 	} 
 	
 	printf(
 		"\n--------------------------------------\n"
-		"The provided signal field is %svalid"
+		"The provided signal field is %s"
 		"\n--------------------------------------\n",
-		is_valid_signal_field(signal_field, is_reverse_bit_order, is_legacy_signal_field) ? "" : "NOT "
+		is_legacy_signal_field
+		? (is_valid_legacy_signal_field(signal_field, is_reverse_bit_order) ? "valid" : "NOT valid") 
+		: "NOT SUPPORTED YET"
 	);	
 	return (0);
 }
